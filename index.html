@@ -1116,20 +1116,6 @@ function showInfo(train, abroad) {
           document.getElementById('i-leg').textContent = `-> ${last}`;
         }
 
-        // Last at: most recent past stop
-        const past = stopovers.filter(s => {
-          const t = s.departure || s.arrival;
-          return t && new Date(t).getTime() < now;
-        });
-        const lastStop = past[past.length - 1];
-        if (lastStop) {
-          document.getElementById('i-station').textContent = lastStop.stop?.name || '—';
-          const t = fmt(lastStop.departure && new Date(lastStop.departure).getTime() > now
-            ? lastStop.arrival    // still at station — show arrival time
-            : lastStop.departure || lastStop.arrival);
-          if (t) document.getElementById('i-time').textContent = t;
-        }
-
         // Operator from trip
         const op = trip.line?.operator?.name || trip.operator?.name;
         if (op) document.getElementById('i-op').textContent = op;
