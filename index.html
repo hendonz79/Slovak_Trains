@@ -310,6 +310,31 @@ const STATIONS = [
   {name:'Kežmarok',              lat:49.1350, lng:20.4314, type:'small'},
 ];
 
+// ─── SLOVAKIA BORDER (from OSM Nominatim — matches the basemap exactly) ────────
+async function drawSlovakiaBorder() {
+  try {
+    // Nominatim returns the official OSM boundary polygon for Slovakia
+    const url = 'https://nominatim.openstreetmap.org/search?country=slovakia&polygon_geojson=1&format=json&limit=1';
+    const r = await fetch(url, { headers: { 'User-Agent': 'SlovakTrainMap/1.0' } });
+    const data = await r.json();
+    if (!data.length || !data[0].geojson) throw new Error('No boundary data');
+
+    L.geoJSON(data[0].geojson, {
+      style: {
+        color:       '#58a6ff',
+        weight:      2,
+        opacity:     0.6,
+        fillColor:   '#58a6ff',
+        fillOpacity: 0.05,
+        interactive: false,
+      },
+      interactive: false,
+    }).addTo(map);
+  } catch(e) {
+    console.warn('Border fetch failed:', e.message);
+  }
+}
+
 function addStationMarkers() {
   STATIONS.forEach(s => {
     const isMajor  = s.type === 'major';
@@ -1356,6 +1381,7 @@ async function refresh() {
 }
 
 addStationMarkers();
+drawSlovakiaBorder();
 refresh();
 setInterval(refresh, 30000);
 </script>
