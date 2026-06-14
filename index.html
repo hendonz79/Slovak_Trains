@@ -1001,9 +1001,10 @@ function renderStopList(stopovers, currentStopName) {
     </div>`;
   }).join('');
 
-  // Scroll to current stop
-  const curEl = el.querySelector('.stop-name.current');
-  if (curEl) curEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // Scroll to current/first future stop
+  const curEl = el.querySelector('.stop-dot.current')?.parentElement
+             || el.querySelector('.stop-dot.future')?.parentElement;
+  if (curEl) setTimeout(() => curEl.scrollIntoView({ block: 'center', behavior: 'smooth' }), 100);
 }
 
 // ─── INFO PANEL ───────────────────────────────────────────────────────────────
@@ -1078,11 +1079,41 @@ function showInfo(train, abroad) {
         const fmt = d => d ? new Date(d).toLocaleTimeString('sk-SK',{hour:'2-digit',minute:'2-digit'}) : null;
         const now = Date.now();
 
+        // Last past stop and current stop
+        // "current" = the stop the train is at or most recently passed
+        let currentStop = null;
+        let lastPastStop = null;
+
+        for (let i = 0; i < stopovers.length; i++) {
+          const s = stopovers[i];
+          const dep = s.departure ? new Date(s.departure).getTime() : null;
+          const arr = s.arrival   ? new Date(s.arrival).getTime()   : null;
+          if (arr && arr <= now) {
+            lastPastStop = s;           // train has arrived here
+            if (!dep || dep > now) {
+              currentStop = s;          // train is currently at this stop
+            }
+          }
+        }
+        const lastStop = currentStop || lastPastStop;
+
         // Full route: first stop -> last stop
         const first = stopovers[0]?.stop?.name;
         const last  = stopovers[stopovers.length-1]?.stop?.name;
         if (first && last) {
           document.getElementById('i-route').textContent = `${first} -> ${last}`;
+        }
+
+        // Current leg: current/last stop -> next stop
+        const nextStop = stopovers.find(s => {
+          const t = s.departure || s.arrival;
+          return t && new Date(t).getTime() > now;
+        });
+        if (lastStop && nextStop) {
+          document.getElementById('i-leg').textContent =
+            `${lastStop.stop?.name || ''} -> ${nextStop.stop?.name || ''}`;
+        } else if (last) {
+          document.getElementById('i-leg').textContent = `-> ${last}`;
         }
 
         // Last at: most recent past stop
@@ -1093,7 +1124,9 @@ function showInfo(train, abroad) {
         const lastStop = past[past.length - 1];
         if (lastStop) {
           document.getElementById('i-station').textContent = lastStop.stop?.name || '—';
-          const t = fmt(lastStop.departure || lastStop.arrival);
+          const t = fmt(lastStop.departure && new Date(lastStop.departure).getTime() > now
+            ? lastStop.arrival    // still at station — show arrival time
+            : lastStop.departure || lastStop.arrival);
           if (t) document.getElementById('i-time').textContent = t;
         }
 
