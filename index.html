@@ -392,7 +392,7 @@ async function addStationMarkers() {
     const allStations = data.stations || [];
     console.log(`✓ Loaded ${allStations.length} stations from Overpass`);
 
-    // Deduplicate by rounding coords to 3 decimal places
+    // Deduplicate by name + rounded coords
     const seen = new Set();
     const stations = allStations.filter(s => {
       const key = `${s.name}|${s.lat.toFixed(3)}|${s.lng.toFixed(3)}`;
@@ -401,42 +401,59 @@ async function addStationMarkers() {
       return true;
     });
 
-    // Classify stations
-    const isSkOperator = op => !op || op.match(/ZSR|ZSSK|Železnice Slov|ŽSR/i);
+    const isSkOp  = op => !op || /ZSR|ZSSK|Železnice Slov|ŽSR/i.test(op);
+    // Skip infrastructure-only entries and non-rail operators
+    const skipOp  = op => /metro|bus|tram|Erdei|Kisvasút|Ipoly|Čiernohronská|detská|Múzeum|funicular|Polskie Koleje Linowe/i.test(op);
 
     for (const s of stations) {
-      const isSK     = isSkOperator(s.operator);
-      const isMajor  = s.type === 'station' && isSK;
-      const isHalt   = s.type === 'halt' || s.type === 'stop';
-      const isBorder = s.name.includes('št. hr.') || s.name.includes('hranica');
+      if (skipOp(s.operator)) continue;                  // skip forest railways, funiculars etc.
+      if (s.name.includes('hranica') || s.name.includes('AH ') || s.name.match(/^\d+ km/)) continue; // skip internal markers
 
-      // Only show: SK stations always, foreign stations only at zoom >= 9
-      const minZoom  = isSK ? 7 : 9;
-      const color    = isBorder ? '#f0b429' : isMajor ? '#58a6ff' : '#484f58';
-      const size     = isMajor ? 4 : 2;
-      const weight   = 1;
+      const isSK     = isSkOp(s.operator);
+      const isStop   = s.type === 'stop' || s.type === 'halt';
+      const isBorder = s.name.includes('št. hr.');
 
-      const marker = L.circleMarker([s.lat, s.lng], {
-        radius: size, color, fillColor: '#0d1117', fillOpacity: 1, weight,
-        interactive: true,
-      }).bindTooltip(s.name, { permanent: false, direction: 'top', className: 'station-tooltip' });
+      // Zoom thresholds: major SK stations always visible, halts/foreign only when zoomed in
+      const minZoom  = isBorder ? 7 : isSK && !isStop ? 7 : isSK && isStop ? 9 : 10;
 
-      // Show/hide based on zoom
+      // Size and colour by importance
+      const size  = isBorder ? 6 : (isSK && !isStop) ? 5 : 3;
+      const color = isBorder ? '#d29922' : (isSK && !isStop) ? '#3d7bd4' : '#2a3a4a';
+      const fill  = isBorder ? '#2d2110' : (isSK && !isStop) ? '#0d1933' : '#0d1117';
+
+      // Diamond icon — visually distinct from round train markers
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:${size}px;height:${size}px;
+          background:${fill};
+          border:1px solid ${color};
+          border-radius:0;
+          transform:rotate(45deg);
+          opacity:0.85;
+        "></div>`,
+        iconSize:   [size, size],
+        iconAnchor: [size/2, size/2],
+      });
+
+      const marker = L.marker([s.lat, s.lng], { icon, zIndexOffset: -200, interactive: true })
+        .bindTooltip(s.name, { permanent: false, direction: 'top', className: 'station-tooltip' });
+
       marker._minZoom = minZoom;
-      marker.addTo(stationsLayer);
+      stationsLayer.addLayer(marker);
     }
 
-    // Update visibility on zoom
-    map.on('zoomend', () => {
+    // Show/hide layers based on zoom
+    const updateStationZoom = () => {
       const z = map.getZoom();
       stationsLayer.eachLayer(m => {
-        if (m._minZoom !== undefined) {
-          const el = m.getElement?.();
-          if (el) el.style.display = z >= m._minZoom ? '' : 'none';
-        }
+        if (m._minZoom === undefined) return;
+        const el = m.getElement?.();
+        if (el) el.style.display = z >= m._minZoom ? '' : 'none';
       });
-      // Trigger once now
-    }).fire('zoomend');
+    };
+    map.on('zoomend', updateStationZoom);
+    updateStationZoom();
 
   } catch(e) {
     console.warn('Failed to load stations from Overpass, using fallback:', e.message);
