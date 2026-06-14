@@ -384,7 +384,44 @@ function _pipGeoJSON(lat, lng, geojson) {
   return false;
 }
 
-function addStationMarkers() {
+async function addStationMarkers() {
+  try {
+    const r = await fetch(`${PROXY}/stations`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const stations = data.stations || [];
+    console.log(`✓ Loaded ${stations.length} stations from Overpass`);
+
+    for (const s of stations) {
+      const isMajor  = s.type === 'station' && !s.operator.match(/metro|bus/i);
+      const isHalt   = s.type === 'halt' || s.type === 'stop';
+      const isBorder = s.name.includes('št. hr.') || s.name.includes('hranica') ||
+                       s.name.toLowerCase().includes('border');
+
+      const color  = isBorder ? '#f0b429' : isMajor ? '#58a6ff' : '#8b949e';
+      const size   = isMajor ? 7 : isHalt ? 3 : 5;
+      const weight = isMajor ? 2 : 1.5;
+
+      L.circleMarker([s.lat, s.lng], {
+        radius:      size,
+        color:       color,
+        fillColor:   '#0d1117',
+        fillOpacity: 1,
+        weight:      weight,
+        interactive: true,
+      }).bindTooltip(s.name, {
+        permanent:  false,
+        direction:  'top',
+        className:  'station-tooltip',
+      }).addTo(stationsLayer);
+    }
+  } catch(e) {
+    console.warn('Failed to load stations from Overpass, using fallback:', e.message);
+    addStationMarkersFallback();
+  }
+}
+
+function addStationMarkersFallback() {
   STATIONS.forEach(s => {
     const isMajor  = s.type === 'major';
     const isBorder = s.type === 'border';
@@ -415,7 +452,7 @@ function addStationMarkers() {
         offset: [0, -(size/2 + 3)],
         className: isMajor ? 'station-tooltip station-label' : 'station-tooltip',
       })
-      .addTo(map);
+      .addTo(stationsLayer);
   });
 }
 
@@ -424,6 +461,7 @@ function addStationMarkers() {
 // e.g. 'https://slovakia-trains.YOUR-SUBDOMAIN.workers.dev'
 const PROXY = 'https://slovak-trains.blair-anderson.workers.dev';
 let markers = {};
+const stationsLayer = L.layerGroup().addTo(map);
 let activeRoute = null;
 
 setInterval(() => {
@@ -751,17 +789,52 @@ function isTrulyInternational(train) {
 
 // ─── FETCH FULL TRIP from ÖBB HAFAS ──────────────────────────────────────────
 async function fetchTripStops(tripId) {
-  // Try v6.oebb.transport.rest first (has CORS, good format)
-  // Fall back to proxy /trip/ endpoint
+  // Primary: use our Cloudflare Worker /trip/ which calls ÖBB mgate JourneyDetails
+  try {
+    const r = await fetch(`${PROXY}/trip/${encodeURIComponent(tripId)}`);
+    if (r.ok) {
+      const data = await r.json();
+      // mgate JourneyDetails response format
+      const svcRes = data.svcResL?.[0];
+      if (svcRes?.err === 'OK') {
+        const journey = svcRes.res?.journey;
+        const locL = svcRes.res?.common?.locL || [];
+        if (journey?.stopL) {
+          const today = journey.date; // "20260614"
+          const parseT = (d, t) => {
+            if (!d || !t) return null;
+            const ts = t.padStart(6,'0');
+            return new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}T${ts.slice(0,2)}:${ts.slice(2,4)}:${ts.slice(4,6)}`);
+          };
+          const stopovers = journey.stopL.map(s => {
+            const loc = locL[s.locX] || {};
+            const crd = loc.crd;
+            return {
+              stop: {
+                name: loc.name || '?',
+                location: crd ? { latitude: crd.y/1e6, longitude: crd.x/1e6 } : null
+              },
+              arrival:        parseT(today, s.aTimeS || s.aTimeR),
+              departure:      parseT(today, s.dTimeS || s.dTimeR),
+              departureDelay: s.dInS ? Math.round(s.dInS/60)*60 : 0,
+            };
+          });
+          return { stopovers, polyline: null };
+        }
+      }
+      // Fallback: maybe it returned v6 format directly
+      if (data.trip || data.stopovers) return data.trip || data;
+    }
+  } catch(e) { console.warn('Worker /trip/ failed:', e.message); }
+
+  // Secondary: try v6.oebb.transport.rest directly (has CORS)
   try {
     const url = `https://v6.oebb.transport.rest/api/trips/${encodeURIComponent(tripId)}?stopovers=true&polyline=true`;
     const r = await fetch(url);
     if (r.ok) { const d = await r.json(); return d.trip || d; }
-  } catch(e) { /* fall through */ }
-  // Fallback via proxy
-  const r = await fetch(`${PROXY}/trip/${encodeURIComponent(tripId)}`);
-  if (!r.ok) throw new Error(`Trip HTTP ${r.status}`);
-  return r.json();
+  } catch(e) { console.warn('v6.oebb.transport.rest failed:', e.message); }
+
+  throw new Error('Could not load trip stops');
 }
 
 // For ZSR trains: fetch stop list from mapa.zsr.sk/Start/TrainDetail
@@ -957,6 +1030,8 @@ function showInfo(train, abroad) {
     })
     .catch(err => {
       loading.textContent = `Stops unavailable`;
+      loading.style.color = '#8b949e';
+      loading.style.fontSize = '11px';
       console.warn('Trip stops error:', err.message);
     });
 }
