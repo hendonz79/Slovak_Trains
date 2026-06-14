@@ -510,7 +510,16 @@ function clearRoute() {
 
 // ─── SLOVAKIA bounding box for stop highlighting ──────────────────────────────
 function isStopInSlovakia(lat, lng) {
-  return lat >= 47.73 && lat <= 49.61 && lng >= 16.84 && lng <= 22.57;
+  // Basic bounding box with raised southern limit
+  if (lat < 47.76 || lat > 49.61) return false;
+  if (lng < 16.84 || lng > 22.57) return false;
+  // Czech Moravia: north of Bratislava, lng < 17.0 is Czech territory
+  if (lng < 17.0 && lat > 48.35) return false;
+  // Czech Moravia river valley (Hodonín, Uherské Hradiště, Otrokovice etc.)
+  if (lat > 48.7 && lng < 17.8) return false;
+  // Břeclav area (CZ): just west of Kúty
+  if (lat > 48.65 && lat < 48.95 && lng < 16.95) return false;
+  return true;
 }
 // Alias used throughout the map code
 const inSlovakia = isStopInSlovakia;
