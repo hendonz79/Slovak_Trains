@@ -853,14 +853,25 @@ async function fetchTripStops(tripId) {
           const stopovers = journey.stopL.map(s => {
             const loc = locL[s.locX] || {};
             const crd = loc.crd;
+            // Real-time times (aTimeR/dTimeR) take priority; fall back to scheduled (aTimeS/dTimeS)
+            const arrR = parseT(today, s.aTimeR);
+            const arrS = parseT(today, s.aTimeS);
+            const depR = parseT(today, s.dTimeR);
+            const depS = parseT(today, s.dTimeS);
+            // Delay = realtime - scheduled, in seconds
+            const arrDelay = (arrR && arrS) ? Math.round((arrR - arrS)/1000) : 0;
+            const depDelay = (depR && depS) ? Math.round((depR - depS)/1000) : 0;
             return {
               stop: {
                 name: loc.name || '?',
                 location: crd ? { latitude: crd.y/1e6, longitude: crd.x/1e6 } : null
               },
-              arrival:        parseT(today, s.aTimeS || s.aTimeR),
-              departure:      parseT(today, s.dTimeS || s.dTimeR),
-              departureDelay: s.dInS ? Math.round(s.dInS/60)*60 : 0,
+              arrival:          arrR || arrS,        // actual (real-time) arrival
+              departure:        depR || depS,        // actual (real-time) departure
+              plannedArrival:   arrS,
+              plannedDeparture: depS,
+              arrivalDelay:     arrDelay,
+              departureDelay:   depDelay,
             };
           });
           return { stopovers, polyline: null };
