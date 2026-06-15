@@ -185,6 +185,7 @@
       <!-- Stop list (populated async for HAFAS trains) -->
       <div id="i-stops-wrap" style="display:none;margin-top:10px;border-top:1px solid #21262d;padding-top:8px;">
         <div style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">All stops</div>
+        <div id="i-data-note" style="display:none;font-size:10px;color:#d29922;background:#2d2110;border:1px solid #594a1a;border-radius:4px;padding:5px 7px;margin-bottom:6px;line-height:1.4;">⏱ Scheduled times — live tracking unavailable for this train</div>
         <div id="i-stops-loading" style="font-size:11px;color:#8b949e;">Loading…</div>
         <div id="i-stops" style="max-height:220px;overflow-y:auto;font-size:11px;"></div>
       </div>
@@ -198,6 +199,9 @@
       <div style="margin-top:7px" class="leg-title">Location</div>
       <div class="leg-row"><div class="dot" style="background:#3fb950"></div> In Slovakia / passing through</div>
       <div class="leg-row"><div class="dot-ring"></div> Currently abroad</div>
+      <div style="margin-top:7px" class="leg-title">Tracking</div>
+      <div class="leg-row"><div class="dot" style="background:#3fb950;border-color:#238636"></div> Live (real-time)</div>
+      <div class="leg-row"><div class="dot" style="background:#3fb95033;border:1px dashed #3fb950"></div> Scheduled only</div>
       <div style="margin-top:6px;font-size:10px;color:#8b949e">Click any train for route</div>
     </div>
 
@@ -542,10 +546,19 @@ function makeIcon(train, abroad) {
     </g>
   </svg>`;
 
-  // Ghost trains (abroad, estimated position): pulsing hollow ring
-  const dot = abroad
-    ? `<div style="width:${sz}px;height:${sz}px;background:transparent;border:2px solid #56d364;border-radius:50%;box-shadow:0 0 8px #56d36466;cursor:pointer;animation:pulse 2s infinite;"></div>`
-    : `<div style="width:${sz}px;height:${sz}px;background:${color};border:2px solid rgba(255,255,255,.25);border-radius:50%;box-shadow:0 0 5px ${color}88;cursor:pointer;"></div>`;
+  // Three marker styles:
+  // - abroad (estimated): pulsing hollow green ring
+  // - live (real GPS): solid filled dot
+  // - schedule-only (no live feed): dot with dashed border to signal estimated-from-timetable
+  let dot;
+  if (abroad) {
+    dot = `<div style="width:${sz}px;height:${sz}px;background:transparent;border:2px solid #56d364;border-radius:50%;box-shadow:0 0 8px #56d36466;cursor:pointer;animation:pulse 2s infinite;"></div>`;
+  } else if (train._isLive) {
+    dot = `<div style="width:${sz}px;height:${sz}px;background:${color};border:2px solid rgba(255,255,255,.35);border-radius:50%;box-shadow:0 0 5px ${color}88;cursor:pointer;"></div>`;
+  } else {
+    // schedule-only: hollow centre, dashed ring
+    dot = `<div style="width:${sz}px;height:${sz}px;background:${color}33;border:2px dashed ${color};border-radius:50%;cursor:pointer;"></div>`;
+  }
 
   return L.divIcon({
     className:'',
@@ -850,6 +863,7 @@ async function fetchTripStops(tripId) {
             const ts = t.padStart(6,'0');
             return new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}T${ts.slice(0,2)}:${ts.slice(2,4)}:${ts.slice(4,6)}`);
           };
+          let hasLive = false;
           const stopovers = journey.stopL.map(s => {
             const loc = locL[s.locX] || {};
             const crd = loc.crd;
@@ -858,6 +872,7 @@ async function fetchTripStops(tripId) {
             const arrS = parseT(today, s.aTimeS);
             const depR = parseT(today, s.dTimeR);
             const depS = parseT(today, s.dTimeS);
+            if (s.aTimeR || s.dTimeR) hasLive = true;  // this stop has real-time data
             // Delay = realtime - scheduled, in seconds
             const arrDelay = (arrR && arrS) ? Math.round((arrR - arrS)/1000) : 0;
             const depDelay = (depR && depS) ? Math.round((depR - depS)/1000) : 0;
@@ -874,7 +889,7 @@ async function fetchTripStops(tripId) {
               departureDelay:   depDelay,
             };
           });
-          return { stopovers, polyline: null };
+          return { stopovers, polyline: null, hasLive };
         }
       }
       // Fallback: maybe it returned v6 format directly
@@ -974,7 +989,7 @@ function drawTripRoute(trip, currentPos) {
 }
 
 // ─── RENDER STOP LIST ──────────────────────────────────────────────────────────
-function renderStopList(stopovers, currentStopName) {
+function renderStopList(stopovers, currentStopName, hasLive) {
   const el = document.getElementById('i-stops');
   const now = Date.now();
   let foundCurrent = false;
@@ -1082,8 +1097,19 @@ function showInfo(train, abroad) {
     .then(trip => {
       loading.style.display = 'none';
       const stopovers = trip.stopovers || [];
-      renderStopList(stopovers, train.InfoZoStanice);
+      renderStopList(stopovers, train.InfoZoStanice, trip.hasLive);
       if (train._src === 'oebb') drawTripRoute(trip, train.Position);
+
+      // Show data-source banner: live vs scheduled-only
+      const banner = document.getElementById('i-data-note');
+      if (banner) {
+        if (trip.hasLive === false) {
+          banner.textContent = 'Scheduled times — live tracking unavailable for this train';
+          banner.style.display = 'block';
+        } else {
+          banner.style.display = 'none';
+        }
+      }
 
       // Enrich panel fields from trip data
       if (stopovers.length) {
