@@ -858,10 +858,17 @@ async function fetchTripStops(tripId) {
         const locL = svcRes.res?.common?.locL || [];
         if (journey?.stopL) {
           const today = journey.date; // "20260614"
+          // HAFAS times may carry a day-offset prefix (e.g. "1191300" = +1 day).
+          // Parse the clock part and apply the day offset to the date.
           const parseT = (d, t) => {
             if (!d || !t) return null;
-            const ts = t.padStart(6,'0');
-            return new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}T${ts.slice(0,2)}:${ts.slice(2,4)}:${ts.slice(4,6)}`);
+            let s = String(t);
+            let dayOff = 0;
+            if (s.length > 6) { dayOff = parseInt(s.slice(0, s.length-6),10) || 0; s = s.slice(s.length-6); }
+            s = s.padStart(6,'0');
+            const base = new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}T${s.slice(0,2)}:${s.slice(2,4)}:${s.slice(4,6)}`);
+            if (dayOff) base.setDate(base.getDate() + dayOff);
+            return base;
           };
           let hasLive = false;
           const stopovers = journey.stopL.map(s => {
