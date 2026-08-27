@@ -212,8 +212,8 @@
 <script>
 // ─── MAP ──────────────────────────────────────────────────────────────────────
 const map = L.map('map', { center:[48.70,19.50], zoom:7, zoomControl:true });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution:'© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:19
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'© OpenStreetMap contributors', maxZoom:19
 }).addTo(map);
 
 // ─── STATIONS ────────────────────────────────────────────────────────────────
